@@ -1,0 +1,13 @@
+.git
+.github
+.terraform
+**/.terraform
+*.tf
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform.lock.hcl
+.env
+.env.*
+requirements.txt

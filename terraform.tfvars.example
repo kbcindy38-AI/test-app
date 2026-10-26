@@ -1,0 +1,6 @@
+subscription_id      = "YOUR-AZURE-SUBSCRIPTION-ID"
+acr_name             = "replacewithuniqueacrname"
+resource_group_name  = "rg-hello-svc"
+location             = "eastus"
+github_repository    = "kbcindy38-AI/test-app"
+github_branch        = "main"

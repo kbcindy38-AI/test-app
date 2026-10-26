@@ -1,53 +1,61 @@
-name: Build Docker image
+name: Build and deploy to Azure Container Apps
 
 on:
   push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
         with:
-          images: hello-svc
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build image
-        uses: docker/build-push-action@v6
+      - name: Build image in Azure Container Registry
+        uses: azure/CLI@v2
+        env:
+          ACR_NAME: ${{ vars.ACR_NAME }}
+          APP_VERSION: ${{ github.ref_name }}
+          GIT_SHA: ${{ github.sha }}
         with:
-          context: .
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            APP_VERSION=${{ github.ref_name }}
-            GIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          azcliversion: latest
+          inlineScript: |
+            az acr build \
+              --registry "$ACR_NAME" \
+              --image "hello-svc:sha-$GIT_SHA" \
+              --build-arg APP_VERSION="$APP_VERSION" \
+              --build-arg GIT_SHA="$GIT_SHA" \
+              .
 
-      - name: Save image archive
-        run: docker save hello-svc:sha-${{ github.sha }} -o hello-svc.tar
-
-      - name: Upload image artifact
-        uses: actions/upload-artifact@v4
+      - name: Deploy image to Azure Container Apps
+        uses: azure/CLI@v2
+        env:
+          ACR_NAME: ${{ vars.ACR_NAME }}
+          RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP }}
+          CONTAINER_APP_NAME: ${{ vars.CONTAINER_APP_NAME }}
+          GIT_SHA: ${{ github.sha }}
         with:
-          name: hello-svc-${{ github.sha }}
-          path: hello-svc.tar
-          if-no-files-found: error
-          retention-days: 7
+          azcliversion: latest
+          inlineScript: |
+            az containerapp update \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$RESOURCE_GROUP_NAME" \
+              --image "$ACR_NAME.azurecr.io/hello-svc:sha-$GIT_SHA"
+            az containerapp ingress update \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$RESOURCE_GROUP_NAME" \
+              --target-port 8080
